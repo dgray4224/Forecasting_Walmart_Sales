@@ -9,3 +9,4 @@ During our analysis, we found that extremely high sales were made from the weeks
 Since Walmart has such a large chain, we wanted to know what factors contributed to weekly sales the most. 
 
 This project was done by myself and Nicole Pham, a fellow classmate in the mathematics ans statistics department at California State University, Long Beach. 
+The attached zip file includes: our powerpoint presentation, the code in R, the knitted html file, and the descriptive report of the project. 
