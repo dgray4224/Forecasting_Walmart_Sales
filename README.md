@@ -1,5 +1,5 @@
 # Forecasting_Walmart_Sales
-
+#### To view html output, please visit: https://dgray4224.github.io/Forecasting_Walmart_Sales/
 Investigating Walmart sales across 45 different Walmart stores. 
 This dataset came from Kaggle.com which includes 6,435 observations following the popular general merchandise store Walmart. 
 The data was collected from February 5, 2010 to October 26, 2012. 
