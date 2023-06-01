@@ -1,0 +1,612 @@
+---
+title: "Forecasting Weekly Sales for Walmart"
+author: "Daniel Garcia, Nicole Pham"
+date: "2022-12-05"
+output: html_document
+---
+
+```{r setup, include=FALSE, error=TRUE, cache=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error=TRUE)
+```
+
+
+#####################################################################################
+#######----------- Libraries/data importing/cleaning/exploring ----------------######
+#####################################################################################
+
+
+
+### Libraries
+```{r}
+# importing libraries
+library(tidyverse)
+library(skimr)
+library(lubridate)
+library(MASS)
+library(rcompanion)
+library(tidymodels)
+```
+
+### Data importing/cleaning/exploring
+```{r}
+# importing data set
+Walmart= read_csv("C:\\Users\\dgray\\OneDrive\\Stats\\Stat 471 R programming\\R projects\\Walmart.csv")
+
+#Walmart= read_csv("/Users/nicolepham/Documents/STAT/STAT 471/Walmart.csv", show_col_types = FALSE)
+glimpse(Walmart)
+```
+
+
+```{r}
+# changing Date variable to date data structure
+# format= year/Month/Day
+
+Walmart<-Walmart %>%
+  mutate(Date=dmy(Date))
+glimpse(Walmart)
+```
+```{r}
+range(Walmart$Date)
+```
+
+
+```{r}
+Walmart %>% 
+  dplyr::select(Weekly_Sales, Temperature, Fuel_Price, CPI, Unemployment) %>% 
+  skim()
+```
+
+
+
+###################################################################################
+#----------------------------------- EDA -----------------------------------------#
+###################################################################################
+
+
+#### 1) Weekly Sales
+
+```{r}
+ggplot(Walmart, aes(x=Weekly_Sales)) + 
+  geom_histogram(bins=24, fill="#CC9900", color="black") +
+  labs(title="Distribution of Weekly Sales", x="Weekly Sales")
+```
+
+```{r}
+shapiro.test(head(Walmart$Weekly_Sales, 500))
+```
+
+
+Distribution is not normally distributed by Shapiro Test.
+
+```{r}
+mean(Walmart$Weekly_Sales)
+```
+
+```{r}
+median(Walmart$Weekly_Sales)
+```
+
+
+
+Many outliers, but mean/median is around $1,000,000 in weekly Sales. Median is a better average here, given the outliers.
+
+Mean: $1,046,965
+Median: $960,746
+
+
+
+
+#### 2) Weeks with Holidays
+
+```{r}
+# using filter function to see which weeks are holiday weeks
+holiday_flag = Walmart %>% 
+  dplyr::filter(Holiday_Flag==1)
+n_unique(holiday_flag$Date)
+```
+
+```{r}
+holiday_flag
+```
+
+
+
+
+```{r}
+ggplot(Walmart, mapping=aes(x=Weekly_Sales, color=factor(Holiday_Flag))) +
+  geom_histogram(position="dodge", bins=14) +
+  labs(title="Histogram of weekly sales by Holiday weeks", x="Weekly Sales", color="Holiday flag")
+```
+
+
+```{r}
+ggplot(Walmart, aes(x=as_factor(Holiday_Flag), y=Weekly_Sales, color=factor(Holiday_Flag)))+
+  geom_boxplot() +
+  labs(title = 'BoxPlot of Weekly Sales by Holiday Weeks', y='Weekly sales', x='Holiday Flag', color="Holiday Flag")
+```
+
+slight increase in median sales for holiday weeks. Outliers in non-holiday weeks. 
+
+
+```{r}
+ggplot(data=holiday_flag, mapping=aes(x=Temperature,y=Weekly_Sales, color=factor(Date))) +
+  geom_point() +
+  geom_smooth(method=lm, formula=y~x, se=FALSE) + 
+  labs(title="Scatterplot of Weekly Sales vs Temperature by Holiday weeks", y="Weekly Sales", color="Date")
+```
+
+```{r}
+ggplot(data=holiday_flag, mapping=aes(x=Fuel_Price,y=Weekly_Sales, color=factor(Date))) +
+  geom_point() +
+  geom_smooth(method=lm, formula=y~x, se=F) + 
+  labs(title="Scatterplot of Weekly Sales vs Fuel Price by Holiday weeks", y="Weekly Sales", color="Date")
+```
+#### 3) By Store
+
+```{r}
+# checking number of stores
+unique(Walmart$Store)
+```
+
+```{r}
+# setting store number as factor
+Walmart$Store = as.factor(Walmart$Store) 
+class(Walmart$Store)
+```
+
+```{r}
+# boxplot of weekly sales by Store
+  ggplot(Walmart, aes(Weekly_Sales, reorder(Store,
+                                   FUN = median, Weekly_Sales))) + 
+  geom_boxplot(color="Dark green") + 
+  labs(title="Boxplot of Weekly sales by Store", x="Weekly Sales", y="Store number")
+```
+Store 4 has the highest median weekly sales. store 33 has the lowest. Store 28 looks like  it has the highest variability, given the extent of the box length. 
+
+#### 4) Weekly Sales By Consumer Price Index
+
+```{r}
+ggplot(Walmart, aes(x=CPI, y=Weekly_Sales)) + 
+  geom_point(alpha=.1) +
+  labs(title="Scatterplot of Weekly Sales vs Consumer Price Index", y="Weekly Sales")
+```
+appears that CPI doesnt effect weekly sales, since weekly sales seem equally distributed across all CPI ranges
+
+```{r}
+ggplot(Walmart, aes(x=CPI)) +
+  geom_histogram(bins=29, fill="orange", color="black") +
+  labs(title = 'Histogram of CPI', y='Count', x='CPI') 
+```
+
+most populated CPI ranges: 125-150, 180-225
+
+#### 5) Unemployment
+
+```{r}
+ggplot(Walmart, mapping=aes(x=Unemployment)) +
+  geom_histogram(bins=12, fill="dark green", color="white") + 
+  labs(title="Histogram of Unemployment rate", )
+```
+
+
+```{r}
+ggplot(Walmart, mapping=aes(x=Unemployment, y=Weekly_Sales, reorder(Store,
+                                   FUN = median, Weekly_Sales), color=Store)) + 
+  geom_point(alpha=.15) +
+  geom_smooth(method=lm, formula= y~x, color="grey") +
+  labs(title="Scatterplot of Weekly Sales vs. Unemployment rate", x="Unemployment rate", y="Weekly Sales", color="Store number")
+```
+
+
+
+
+Seems like a moderate decrease in weekly sales as the unemployment rate increases. 
+
+
+
+#### Time
+
+```{r}
+# grouping by date and finding mean of all 45 walmart stores per week// also outputting if the week is a holiday week
+Mean_wkly_sales= Walmart %>% 
+  group_by(Date, Holiday_Flag) %>% 
+  summarise(Weekly_Sales = mean(Weekly_Sales, na.rm=TRUE))
+Mean_wkly_sales
+```
+
+```{r}
+# line graph of all average weekly sales, highlighting those that surpassed $1.2M
+ggplot(Mean_wkly_sales, mapping=aes(Date, Weekly_Sales)) + 
+  geom_point(aes(color=Weekly_Sales>1200000), show.legend=T) +
+  geom_line(group=2, color="grey") +
+  labs(title="Weekly Sales by Date", subtitle="Showing average weekly sales greater than 1.3M", y="weekly sales", color="Weeks with Weekly Sales > 1.2M") +
+  theme_bw() 
+```
+
+Certain Dates have outliers. I've defined outliers to be weekly sales that surpass $1.4M Let's look further into this and see if they are holiday days.
+
+```{r}
+# tibble showing dates that mean weekly sales surpass $1.2M
+all_extremes = Mean_wkly_sales %>% 
+  filter(Weekly_Sales>1200000) 
+all_extremes
+
+# counting number of times mean weekly sales passed $1.2M
+nrow(all_extremes)
+```
+
+
+
+```{r}
+# tibble showing holiday weeks that passed $1.2M in average weekly sales
+num_holiday_extremes = all_extremes %>% 
+  filter(Holiday_Flag==1) 
+nrow(num_holiday_extremes)
+num_holiday_extremes
+```
+
+
+```{r}
+# proportion of times weekly sales surpassed $1.2M in a holiday week 
+p= nrow(num_holiday_extremes)/nrow(all_extremes)
+p
+```
+
+25% of the days that had weekly sales greater that $1.2M were flagged as Holiday weeks. 
+
+
+
+```{r}
+# Line graph showing average weekly sales by date with holiday flags highlighted
+
+ggplot(Mean_wkly_sales, mapping=aes(Date, Weekly_Sales)) + 
+  geom_point(aes(color=factor(Holiday_Flag)), show.legend=T) +
+  geom_line(group=2, color="grey") +
+  labs(title="Weekly Sales in the Extreme", subtitle="Showing Holiday flags for average weekly sales greater than 1.3M", y="weekly sales", color='Holiday Flag') +
+  theme_bw()
+```
+
+
+#### Correlation Coefficients for all numeric variables
+
+```{r}
+cor(Walmart[, c("Weekly_Sales", "Temperature", "CPI", "Fuel_Price", "Unemployment")])
+```
+
+
+####################################################################################################
+#----------------------------------- Regression Section -------------------------------------------#
+####################################################################################################
+
+
+## Regression on average weekly sales across all Walmarts
+#### General Linear Regression
+```{r}
+# fitting a general linear regression model
+
+summary(fitted.model<-glm(Weekly_Sales ~ Store + Holiday_Flag + Temperature + Fuel_Price + CPI + Unemployment, data=Walmart, family=gaussian(link=identity)))
+```
+
+not a good model since the response is not normally distributed. We will use a box-cox power transformation
+
+
+
+
+
+
+#### Box-Cox Power Transformation
+```{r}
+mean_all = Walmart %>% 
+  group_by(Date) %>% 
+  summarize(Weekly_Sales = mean(Weekly_Sales),
+            Temperature= mean(Temperature),
+            CPI= mean(CPI),
+            Fuel_Price= mean(Fuel_Price),
+            Unemployment=mean(Unemployment))
+mean_all
+```
+```{r}
+shapiro.test(head(Walmart$Weekly_Sales, 400))
+```
+
+```{r}
+# fitting box-cox transformation
+boxcox_fit<-boxcox(Weekly_Sales ~ Temperature + CPI + Fuel_Price + Unemployment,
+                             data=Walmart, lambda=seq(-2,2,1/4), interp=FALSE)
+```
+
+
+```{r}
+boxcox.data = data.frame(boxcox_fit$x, boxcox_fit$y)
+```
+
+
+```{r}
+ordered.data<- boxcox.data[with(boxcox.data, order(-boxcox_fit.y)),]
+ordered.data[1,]
+
+```
+
+```{r}
+
+wkly_sales= Walmart$Weekly_Sales
+tr_wkly_sales = log(Walmart$Weekly_Sales)
+head(tr_wkly_sales)
+```
+
+```{r}
+plotNormalHistogram(tr_wkly_sales)
+```
+
+```{r}
+shapiro.test(head(tr_wkly_sales, 450))
+```
+Box-Cox Power transformation is not a good fit. Trying Gamma model next for right-skewed distributions. 
+
+#### Gamma Regression
+
+```{r}
+# setting reference level for holiday_flag and Store
+Store_ = relevel(factor(Walmart$Store), ref=5)
+Holiday_Flag_ = relevel(factor(Walmart$Holiday_Flag), ref="0")
+```
+
+
+```{r}
+# fitting Gamma regression model
+summary(fitted.model<-glm(Weekly_Sales ~ Store_ + Holiday_Flag_ + Temperature + Fuel_Price + CPI + Unemployment, data=Walmart, family=Gamma(link=log)))
+```
+
+
+
+
+
+
+```{r}
+# fitting null model to perform deviance test 
+null.model<- glm(Weekly_Sales ~ 1, data=Walmart, family=Gamma(link=log))
+
+
+# deviance test
+print(deviance<- -2*(logLik(null.model)-logLik(fitted.model)))
+
+```
+
+
+```{r}
+# p value of deviance test
+# if p value> .05, null model is better fit. If p value< .05, fitted model is better fit.
+p.value<-pchisq(deviance, df=50, lower.tail=FALSE)
+p.value
+```
+
+
+
+```{r}
+sample_n(Walmart, 1)
+```
+
+
+
+```{r}
+print(predict(fitted.model, data.frame(Store_="20", Holiday_Flag_="0", Temperature=50.52, Fuel_Price=2.917, CPI=205.0628, Unemployment=7.484), type="response"))
+
+```
+```{r}
+sample_n(Walmart, 1)
+```
+
+```{r}
+print(predict(fitted.model, data.frame(Store_="1", Holiday_Flag_="0", Temperature=86.83, Fuel_Price=3.682, CPI=215.4834, Unemployment=7.962), type="response"))
+```
+
+
+
+
+
+
+###################################################################################
+################################ Analysis #########################################
+###################################################################################
+
+
+```{r}
+# Changing Holiday flag to 1 during holiday times where holiday weeks are considered 0
+x = Walmart %>% 
+  filter((Date=="2010-12-10" | Date=="2010-12-17" | Date=="2010-12-24" | Date=="2011-12-09" | Date=="2011-12-16" | Date=="2011-12-23") & Holiday_Flag==0) %>% 
+  mutate(Holiday_Flag = replace(Holiday_Flag, Holiday_Flag==0, 1))
+x
+```
+
+
+```{r}
+# modifying Walmart data to delete rows with Holiday weeks that are not flagged
+rem_hol = subset(Walmart, (Date!="2010-12-10" & Date!="2010-12-17" & Date!="2010-12-24" & Date!="2011-12-09" &
+                     Date!="2011-12-16" & Date!="2011-12-23"))
+rem_hol %>% 
+  filter(Date=="2011-12-09")
+```
+```{r}
+# appending new holiday weeks to modified Walmart data
+Walmart_new= rbind(x, rem_hol)
+Walmart_new %>% 
+  filter(Date=="2010-12-10")
+```
+
+```{r}
+# calculating mean of each sales week using new Holiday flags
+Walmart_new_mean= Walmart_new %>% 
+  group_by(Date, Holiday_Flag) %>% 
+  summarise(Weekly_Sales = mean(Weekly_Sales, na.rm=TRUE))
+Walmart_new_mean
+```
+
+
+
+```{r}
+# Line graph showing average weekly sales by date with new holiday flags highlighted
+
+ggplot(Walmart_new_mean, mapping=aes(Date, Weekly_Sales)) + 
+  geom_point(aes(color=factor(Holiday_Flag)), show.legend=T) +
+  geom_line(group=2, color="grey") +
+  labs(title="Weekly Sales in the Extreme", subtitle="Showing Holiday flags for average weekly sales greater than 1.2M", y="weekly sales", color='Holiday Flag') +
+  theme_bw()
+```
+
+We now see that all extremes over 1.2M are during the holiday times. Specifically, from thanksgiving week to Christmas.  
+
+#### Separating outlier weeks
+
+```{r}
+Walmart_year = Walmart |>
+  separate(Date, c("Year", "Month", "Day"), sep = "-", remove = FALSE) |>
+  transform(Year = as.factor(Year), Month = as.factor(Month), Day = as.factor(Day))
+
+ggplot(Walmart_year, aes(x=Year, y=Weekly_Sales))+
+  geom_boxplot() +
+  labs(title = 'BoxPlot of Weekly Sales by Year', y='Weekly sales', x='Year')
+
+#finding and saving the highest weekly sale in 2012 to differentiate outliers in 2010 and 2011
+Walmart_year2012 = Walmart_year |> 
+  group_by(Year, Weekly_Sales) |> 
+  filter(Year == 2012) 
+max2012 = max(Walmart_year2012$Weekly_Sales)
+
+new_extremes = Walmart_year |> 
+  filter(Weekly_Sales > max2012) 
+
+#most of the high sales are from thanksgiving weeks to xmas weeks
+ggplot(data=new_extremes, mapping=aes(x=Date,y=Weekly_Sales, color=factor(Year))) +
+  geom_point() +
+  labs(title="Scatterplot of Outliers of Weekly Sales vs Date", y="Weekly Sales")
+```
+
+### Separating the date
+##### BoxPlot of Weekly Sales by Year
+
+```{r}
+#looking at data by year
+Walmart_year = Walmart |>
+  separate(Date, c("Year", "Month", "Day"), sep = "-", remove = FALSE) |>
+  transform(Year = as.factor(Year), Month = as.factor(Month), Day = as.factor(Day))
+
+ggplot(Walmart_year, aes(x=Year, y=Weekly_Sales))+
+  geom_boxplot() +
+  labs(title = 'BoxPlot of Weekly Sales by Year', y='Weekly sales', x='Year')
+```
+### Bootstrapping
+```{r}
+#grouping by month to get the mean sales by month
+Walmart_month = Walmart_year |>
+  dplyr:::select(Month, Weekly_Sales) |>
+  group_by(Month) |>
+  summarize(mean_sales = mean(Weekly_Sales))
+
+#bootstrapping sales each month with 50 reps
+virtual_resampled_means <- Walmart_month |>
+  rep_sample_n(size = 12, replace = TRUE, reps = 50) |>
+  group_by(replicate) |>
+  summarize(mean = mean(mean_sales))
+
+ggplot(virtual_resampled_means, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean")
+```
+
+```{r}
+#bootstrapping sales each month with 100 reps
+virtual_resampled_means <- Walmart_month |>
+  rep_sample_n(size = 12, replace = TRUE, reps = 100) |>
+  group_by(replicate) |>
+  summarize(mean = mean(mean_sales))
+
+ggplot(virtual_resampled_means, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean")
+```
+
+```{r}
+#bootstrapping with 1000 reps
+virtual_resampled_means3 <- Walmart_month |>
+  rep_sample_n(size = 12, replace = TRUE, reps = 1000) |>
+  group_by(replicate) |>
+  summarize(mean = mean(mean_sales))
+
+ggplot(virtual_resampled_means3, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean")
+```
+
+From above:
+Mean: $1,046,965
+Median: $960,746
+
+The mean is very close to the mean of the bootstrap distribution with 1000 reps. 
+
+```{r}
+#confidence interval using the percentile method
+quantile(virtual_resampled_means3$mean, c(0.025, 0.975))
+
+#visual of the confidence interval
+ggplot(virtual_resampled_means3, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  geom_vline(xintercept = c(1005037, 1098265), color = "blue") +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean",
+       subtitle = "Percentile method confidence interval")
+```
+
+Confidence Interval(Percentile Method): ($1,006,330, $1,102,230)
+
+```{r}
+#confidence interval using the standard error method
+#middle 95% of values of bootstrap distribution
+virtual_resampled_means3 |>
+  summarize(SE = sd(mean))
+
+#visual of the confidence interval
+ggplot(virtual_resampled_means3, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  geom_vline(xintercept = c(998285.97, 1095644.03), color = "blue") +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean",
+       subtitle = "Standard error confidence interval")
+```
+
+Confidence Interval(Standard Error Method): ($998,285.97, $1,095,644.03)
+
+```{r}
+#visual of both confidence intervals
+ggplot(virtual_resampled_means3, aes(x = mean)) +
+  geom_histogram(binwidth = 10000, color = "white", boundary = 1300000) +
+  geom_vline(xintercept = c(1005037, 1098265), color = "blue") +
+  geom_vline(xintercept = c(998285.97, 1095644.03), color = "red") +
+  labs(x = "sample mean sales",
+       title = "Bootstrap distribution of the sample mean",
+       subtitle = "blue = percentile method, red = standard error method")
+```
+
+############# other data explorations ######################
+
+```{r}
+ggplot(data = Walmart_year, mapping = aes(x = Temperature, y = Weekly_Sales)) +
+  geom_point() +
+  geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
+  facet_wrap(~ Year, ncol = 1) +
+  labs(title="Scatterplot of Weekly Sales vs Temperature by Year", y = "Weekly Sales") 
+```
+
+```{r}
+ggplot(data = Walmart_year, mapping = aes(x = Fuel_Price, y = Weekly_Sales)) +
+  geom_point() +
+  geom_smooth(method = lm, formula = y ~ x, se = F) + 
+  facet_wrap(~ Year, ncol = 1) +
+  labs(title="Scatterplot of Weekly Sales vs Fuel Price by Year", x = "Fuel Price", y = "Weekly Sales")
+```
+
+
+
+
